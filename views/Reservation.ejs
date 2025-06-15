@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Restaurant Table Reservation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        #reservation-form {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(255, 255, 255, 0.95);
+            padding: 2rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
+            display: none;
+            z-index: 10;
+        }
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0, 0, 0, 0.5);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div id="reservation-form" class="w-full max-w-md">
+        <h2 class="text-2xl font-bold mb-4 text-center">Reserve Table</h2>
+        <form id="booking-form">
+            <div class="mb-4">
+                <label for="name" class="block text-gray-700 text-sm font-bold mb-2">Name:</label>
+                <input type="text" id="name" name="name" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
+            </div>
+            <div class="mb-4">
+                <label for="date" class="block text-gray-700 text-sm font-bold mb-2">Date:</label>
+                <input type="date" id="date" name="date" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
+            </div>
+            <div class="mb-4">
+                <label for="time" class="block text-gray-700 text-sm font-bold mb-2">Time:</label>
+                <input type="time" id="time" name="time" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
+            </div>
+            <div class="mb-4">
+                <label for="guests" class="block text-gray-700 text-sm font-bold mb-2">Number of Guests:</label>
+                <input type="number" id="guests" name="guests" min="1" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
+            </div>
+            <div class="flex items-center justify-between">
+                <button type="submit" class="bg-orange-500 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                    Confirm Reservation
+                </button>
+                <button type="button" id="cancel-booking" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                    Cancel
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <div id="instructions">
+        <b>Controls:</b> Left-click & drag to rotate | Right-click & drag to pan | Scroll to zoom
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        // Scene, Camera, and Renderer
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf0f0f0);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        // Controls
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.screenSpacePanning = false;
+        controls.minDistance = 10;
+        controls.maxDistance = 50;
+        controls.maxPolarAngle = Math.PI / 1.9;
+
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(15, 20, 10);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
+        scene.add(directionalLight);
+
+
+        // Floor
+        const floorGeometry = new THREE.PlaneGeometry(30, 30);
+        const floorMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 });
+        const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        // Table Properties
+        const tableColorAvailable = 0xffa500; // Orange
+        const tableColorReserved = 0x808080; // Grey
+        const tableColorSelected = 0x0000ff; // Blue
+        
+        const tables = [];
+        const tablePositions = [
+            [-10, 0, -10], [0, 0, -10], [10, 0, -10],
+            [-10, 0, 0],   [0, 0, 0],   [10, 0, 0],
+            [-10, 0, 10],  [0, 0, 10],  [10, 0, 10]
+        ];
+
+        // Create Tables
+        tablePositions.forEach((pos, index) => {
+            const tableGroup = new THREE.Group();
+
+            // Tabletop
+            const tabletopGeometry = new THREE.BoxGeometry(4, 0.2, 2.5);
+            const tabletopMaterial = new THREE.MeshStandardMaterial({ color: tableColorAvailable, metalness: 0.1, roughness: 0.5 });
+            const tabletop = new THREE.Mesh(tabletopGeometry, tabletopMaterial);
+            tabletop.position.y = 1.5;
+            tabletop.castShadow = true;
+            tabletop.receiveShadow = true;
+            tableGroup.add(tabletop);
+
+            // Table Legs
+            const legGeometry = new THREE.BoxGeometry(0.2, 1.3, 0.2);
+            const legMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+            const legPositions = [
+                [-1.8, 0.75, -1.1], [1.8, 0.75, -1.1],
+                [-1.8, 0.75, 1.1], [1.8, 0.75, 1.1]
+            ];
+            legPositions.forEach(legPos => {
+                const leg = new THREE.Mesh(legGeometry, legMaterial);
+                leg.position.set(legPos[0], legPos[1], legPos[2]);
+                leg.castShadow = true;
+                tableGroup.add(leg);
+            });
+
+            tableGroup.position.set(pos[0], 0, pos[2]);
+            tableGroup.userData = { id: index + 1, status: 'available' }; // Use 1-based indexing for table ID
+            tables.push(tableGroup);
+            scene.add(tableGroup);
+        });
+
+        // Camera Position
+        camera.position.set(0, 20, 25);
+        camera.lookAt(scene.position);
+
+        // Raycasting for table selection
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let selectedTable = null;
+
+        // Use the 'click' event which is better at distinguishing clicks from drags
+        renderer.domElement.addEventListener('click', onMouseClick, false);
+
+        function onMouseClick(event) {
+            // Don't trigger if interacting with the form
+            if (document.getElementById('reservation-form').style.display === 'block') {
+                return;
+            }
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            const intersects = raycaster.intersectObjects(tables, true);
+
+            if (intersects.length > 0) {
+                let clickedObject = intersects[0].object;
+                
+                // Traverse up to find the parent group (the table)
+                while (clickedObject.parent && clickedObject.userData.id === undefined) {
+                    clickedObject = clickedObject.parent;
+                }
+                
+                if (clickedObject.userData.id !== undefined && clickedObject.userData.status === 'available') {
+                    // Deselect previous table if any
+                    if (selectedTable && selectedTable.userData.status === 'available') {
+                         selectedTable.children[0].material.color.set(tableColorAvailable);
+                    }
+
+                    selectedTable = clickedObject;
+                    selectedTable.children[0].material.color.set(tableColorSelected);
+                    
+                    const form = document.getElementById('reservation-form');
+                    form.querySelector('h2').textContent = `Reserve Table ${selectedTable.userData.id}`;
+                    form.style.display = 'block';
+                    controls.enabled = false; // Disable camera controls when form is open
+                }
+            }
+        }
+        
+        // Handle Form Submission
+        const bookingForm = document.getElementById('booking-form');
+        bookingForm.addEventListener('submit', function(event) {
+            event.preventDefault();
+            if (selectedTable) {
+                selectedTable.userData.status = 'reserved';
+                selectedTable.children[0].material.color.set(tableColorReserved);
+                
+                // You would typically send this data to a server
+                const bookingDetails = {
+                    tableId: selectedTable.userData.id,
+                    name: document.getElementById('name').value,
+                    date: document.getElementById('date').value,
+                    time: document.getElementById('time').value,
+                    guests: document.getElementById('guests').value,
+                };
+                console.log('Booking Confirmed:', bookingDetails);
+                
+                closeForm();
+            }
+        });
+
+        // Handle Cancel Button
+        document.getElementById('cancel-booking').addEventListener('click', function() {
+            if(selectedTable && selectedTable.userData.status !== 'reserved') {
+                selectedTable.children[0].material.color.set(tableColorAvailable);
+            }
+            closeForm();
+        });
+
+        function closeForm() {
+            document.getElementById('reservation-form').style.display = 'none';
+            bookingForm.reset();
+            selectedTable = null;
+            controls.enabled = true; // Re-enable camera controls
+        }
+
+        // Handle Window Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }, false);
+        
+        // Animation Loop
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+    </script>
+</body>
+</html>
